@@ -3,66 +3,112 @@ local event = require("event")
 local thread = require("thread")
 local unicode = require("unicode")
 local keyboard = require("keyboard")
+local filesystem = require("filesystem")
 local text = require("text") -- NOTE: Only used for debug stuff
 
--- Keybinds --
+-- Configuration --
 
-local KEYS_LEFT = {"left", "numpad4"}
-local KEYS_RIGHT = {"right", "numpad6"}
-
-local KEYS_ROTATE_COUNTERCLOCKWISE = {"z", "lcontrol", "rcontrol", "numpad3", "numpad7"}
-local KEYS_ROTATE_CLOCKWISE = {"x", "up", "numpad1", "numpad5", "numpad9"}
-
-local KEYS_DROP_SOFT = {"down", "numpad2"}
-local KEYS_DROP_HARD = {"space", "numpad8", "pageDown"}
-
-local KEYS_HOLD = {"c", "lshift", "rshift", "numpad0"}
-
--- Scoring --
-
-local LEVEL = 1
-
-local SCORE_CLEARED_LINES = {
-  100, -- single
-  300, -- double
-  500, -- triple
-  800  -- tetris
+local DEFAULT_CONFIG = [[
+keybinds = {
+  left = {"left", "numpad4"},
+  right = {"right", "numpad6"},
+  rotateCounterclockwise = {"z", "lcontrol", "rcontrol", "numpad3", "numpad7"},
+  rotateClockwise = {"x", "up", "numpad1", "numpad5", "numpad9"},
+  dropSoft = {"down", "numpad2"},
+  dropHard = {"space", "numpad8", "pageDown"},
+  hold = {"c", "lshift", "rshift", "numpad0"}
 }
+scoring = {
+  level = 1,
+  clearedLinesScore = {
+    100, -- single
+    300, -- double
+    500, -- triple
+    800  -- tetris
+  }
+}
+gameplay = {
+  fieldWidth = 10,
+  fieldHeight = 20,
+  fieldOverflowHeight = 20,
+  dropSpeed = 1,
+  softDropMultiplier = 10,
+  previewLength = 6
+}
+theme = {
+  background = 0x000000,
+  border = 0xFFFFFF,
+  text = 0xFFFFFF,
+  gameOverBackground = 0xCC0000,
+  tileCharCode = 0x2B1B, -- filled large square
+  shadowMultiplier = 0.5,
+  pieces = {
+--  type = {foreground, background}
+    gray = {0xA0A0A0, 0x444444},
+    I = {0x00F0F0, 0x006666},
+    J = {0x0000F0, 0x000066},
+    L = {0xF0A000, 0x664400},
+    O = {0xF0F000, 0x666600},
+    S = {0x00F000, 0x006600},
+    T = {0xA000F0, 0x440066},
+    Z = {0xF00000, 0x660000}
+  }
+}
+lang = {
+  gameOver = "GAME OVER",
+  previewLabel = "NEXT",
+  holdLabel = "HOLD",
+  scorePrefix = "Score: "
+}
+]]
+
+local function loadConfig()
+  if not filesystem.exists("/etc/tetris.cfg") then
+    -- Generate config file
+    -- (modified from provided edit.lua)
+    local fs = require("filesystem")
+    local root = fs.get("/")
+    if root and not root.isReadOnly() then
+      fs.makeDirectory("/etc")
+      local f = io.open("/etc/tetris.cfg", "w")
+      if f then
+        f:write(DEFAULT_CONFIG)
+        f:close()
+      end
+    end
+  end
+
+  local env = {}
+  local config = loadfile("/etc/tetris.cfg", nil, env)
+  if config then
+    pcall(config)
+  end
+
+  --FIXME: Entries may be missing if config file was edited
+
+  if env.gameplay.previewLength > 7 then
+    -- There may only be 7 upcoming pieces available (one full bag)
+    -- So limit preview length to avoid issues
+    env.gameplay.previewLength = 7
+  end
+  --TODO: More validation
+
+  -- Precalculate additional constants
+  env.gameplay.highestRow = 1 - env.gameplay.fieldOverflowHeight
+  env.gameplay.dropInterval = 1 / (env.gameplay.dropSpeed * env.gameplay.softDropMultiplier)
+  env.theme.tileChar = unicode.char(env.theme.tileCharCode)
+
+  return env
+end
+
+local config = loadConfig()
 
 -- Constants --
-
-local BACKGROUND_COLOR = 0x000000
-local BORDER_COLOR = 0xFFFFFF
-local TEXT_COLOR = 0xFFFFFF
-
-local GRAY_PIECE_COLORS = {0xA0A0A0, 0x444444}
-local SHADOW_COLOR_MULTIPLIER = 0.5
-
-local FIELD_WIDTH = 10
-local FIELD_HEIGHT = 20
-local FIELD_TOP_BUFFER = 20
-local HIGHEST_ROW = 1 - FIELD_TOP_BUFFER
-
-local DROP_SPEED = 1
-local DROP_KEY_MULTIPLIER = 10
-local DROP_INTERVAL = 1 / (DROP_SPEED * DROP_KEY_MULTIPLIER)
 
 local UPPER_HALF_BLOCK = unicode.char(0x2580)
 local LOWER_HALF_BLOCK = unicode.char(0x2584)
 
-local FILLED_LARGE_SQUARE = unicode.char(0x2B1B)
-
-local GAME_OVER_TEXT = "GAME OVER"
-local GAME_OVER_COLOR = 0xFFFFFF
-local GAME_OVER_BACKGROUND_COLOR = 0xFF0000
-local GAME_OVER_BACKGROUND_OPACITY = 0.80
-
-local PREVIEW_TEXT = "NEXT"
-local PREVIEW_LENGTH = 6
-
-local HOLD_TEXT = "HOLD"
-
--- Generic Utilities
+-- Generic Utilities --
 
 local function copy(table)
   local c = {}
@@ -138,8 +184,8 @@ function Piece.new(colors, tiles, offsets)
   return setmetatable({
     colors=colors,
     shadowColors={
-      colorMultiply(colors[1], SHADOW_COLOR_MULTIPLIER),
-      colorMultiply(colors[2], SHADOW_COLOR_MULTIPLIER)
+      colorMultiply(colors[1], config.theme.shadowMultiplier),
+      colorMultiply(colors[2], config.theme.shadowMultiplier)
     },
     tiles=tiles,
     rotation=1,
@@ -175,13 +221,13 @@ local OFFSETS_O = {
 }
 
 local PIECES = {
-  Piece.new({0x00F0F0, 0x006666}, {{ 0,  0}, {-1,  0}, { 1,  0}, { 2,  0}}, OFFSETS_I    ), -- I
-  Piece.new({0x0000F0, 0x000066}, {{ 0,  0}, {-1, -1}, {-1,  0}, { 1,  0}}, OFFSETS_JLSTZ), -- J
-  Piece.new({0xF0A000, 0x664400}, {{ 0,  0}, {-1,  0}, { 1,  0}, { 1, -1}}, OFFSETS_JLSTZ), -- L
-  Piece.new({0xF0F000, 0x666600}, {{ 0,  0}, { 0, -1}, { 1, -1}, { 1,  0}}, OFFSETS_O    ), -- O
-  Piece.new({0x00F000, 0x006600}, {{ 0,  0}, {-1,  0}, { 0, -1}, { 1, -1}}, OFFSETS_JLSTZ), -- S
-  Piece.new({0xA000F0, 0x440066}, {{ 0,  0}, {-1,  0}, { 0, -1}, { 1,  0}}, OFFSETS_JLSTZ), -- T
-  Piece.new({0xF00000, 0x660000}, {{ 0,  0}, {-1, -1}, { 0, -1}, { 1,  0}}, OFFSETS_JLSTZ)  -- Z
+  Piece.new(config.theme.pieces.I, {{ 0,  0}, {-1,  0}, { 1,  0}, { 2,  0}}, OFFSETS_I    ), -- I
+  Piece.new(config.theme.pieces.J, {{ 0,  0}, {-1, -1}, {-1,  0}, { 1,  0}}, OFFSETS_JLSTZ), -- J
+  Piece.new(config.theme.pieces.L, {{ 0,  0}, {-1,  0}, { 1,  0}, { 1, -1}}, OFFSETS_JLSTZ), -- L
+  Piece.new(config.theme.pieces.O, {{ 0,  0}, { 0, -1}, { 1, -1}, { 1,  0}}, OFFSETS_O    ), -- O
+  Piece.new(config.theme.pieces.S, {{ 0,  0}, {-1,  0}, { 0, -1}, { 1, -1}}, OFFSETS_JLSTZ), -- S
+  Piece.new(config.theme.pieces.T, {{ 0,  0}, {-1,  0}, { 0, -1}, { 1,  0}}, OFFSETS_JLSTZ), -- T
+  Piece.new(config.theme.pieces.Z, {{ 0,  0}, {-1, -1}, { 0, -1}, { 1,  0}}, OFFSETS_JLSTZ)  -- Z
 }
 
 function Piece:kickTranslations(from, to)
@@ -228,27 +274,27 @@ local originalBackground = {gpu.getBackground()}
 local originalForeground = {gpu.getForeground()}
 
 local width, height = gpu.getViewport()
-gpu.setBackground(BACKGROUND_COLOR)
+gpu.setBackground(config.theme.background)
 gpu.fill(1, 1, width, height, " ")
 
 local tileScale
-if FIELD_WIDTH / FIELD_HEIGHT < width // 2 / height
+if config.gameplay.fieldWidth / config.gameplay.fieldHeight < width // 2 / height
 then -- field is taller than viewport
-  tileScale = height // FIELD_HEIGHT
+  tileScale = height // config.gameplay.fieldHeight
 else -- field is wider than viewport
-  tileScale = width // 2 // FIELD_WIDTH
+  tileScale = width // 2 // config.gameplay.fieldWidth
 end
 
-local fieldWidth = 2 * tileScale * FIELD_WIDTH
-local fieldHeight = tileScale * FIELD_HEIGHT
+local fieldWidth = 2 * tileScale * config.gameplay.fieldWidth
+local fieldHeight = tileScale * config.gameplay.fieldHeight
 local fieldX = math.floor(width / 2 - fieldWidth / 2 + 1)
 local fieldY = math.floor(height / 2 - fieldHeight / 2 + 1)
 
-gpu.setBackground(BORDER_COLOR)
+gpu.setBackground(config.theme.border)
 gpu.fill(fieldX - 1, fieldY, 1, fieldHeight, " ") -- Left border
 gpu.fill(fieldX + fieldWidth, fieldY, 1, fieldHeight, " ") -- Right border
-gpu.setBackground(BACKGROUND_COLOR)
-gpu.setForeground(BORDER_COLOR)
+gpu.setBackground(config.theme.background)
+gpu.setForeground(config.theme.border)
 gpu.fill(fieldX - 1, fieldY + fieldHeight, fieldWidth + 2, 1, UPPER_HALF_BLOCK) -- Ground
 
 local previewX = fieldX + fieldWidth + 1 + 2 * tileScale
@@ -257,10 +303,10 @@ local previewY = fieldY + 1 + tileScale
 local holdX = fieldX - 2 - 2 * tileScale
 local holdY = previewY
 
-gpu.setBackground(BACKGROUND_COLOR)
-gpu.setForeground(TEXT_COLOR)
-gpu.set(previewX, fieldY, PREVIEW_TEXT)
-gpu.set(holdX - #HOLD_TEXT + 1, fieldY, HOLD_TEXT)
+gpu.setBackground(config.theme.background)
+gpu.setForeground(config.theme.text)
+gpu.set(previewX, fieldY, config.lang.previewLabel)
+gpu.set(holdX - #config.lang.holdLabel + 1, fieldY, config.lang.holdLabel)
 
 local function fieldCoords(x, y)
   return fieldX + (x - 1) * 2 * tileScale, fieldY + (y - 1) * tileScale
@@ -270,32 +316,14 @@ local function showGameOver()
   local centerX = fieldX + (fieldWidth - 1) / 2
   local centerY = fieldY + (fieldHeight - 1) / 2
 
-  gpu.setForeground(GAME_OVER_COLOR)
-  gpu.setBackground(colorMultiply(GAME_OVER_BACKGROUND_COLOR, GAME_OVER_BACKGROUND_OPACITY))
+  gpu.setForeground(config.theme.text)
+  gpu.setBackground(config.theme.gameOverBackground)
   gpu.fill(fieldX, centerY - tileScale, fieldWidth, 1 + 2 * tileScale, " ")
-  gpu.set(centerX - #GAME_OVER_TEXT / 2, centerY, GAME_OVER_TEXT)
-
---  for x = fieldX, fieldX + fieldWidth - 1 do
---    for y = centerY - tileScale, centerY + tileScale do
---      local char, foreground, background = gpu.get(x, y)
---      gpu.setForeground(applyTransparency(foreground, GAME_OVER_BACKGROUND_COLOR, GAME_OVER_BACKGROUND_OPACITY))
---      gpu.setBackground(applyTransparency(background, GAME_OVER_BACKGROUND_COLOR, GAME_OVER_BACKGROUND_OPACITY))
---      gpu.set(x, y, char)
---    end
---  end
---  local x = centerX - #GAME_OVER_TEXT / 2
---  local y = centerY
---  gpu.setForeground(GAME_OVER_COLOR)
---  for i = 1, #GAME_OVER_TEXT do
---    local _, _, background = gpu.get(x, y)
---    gpu.setBackground(background)
---    gpu.set(x, y, GAME_OVER_TEXT:sub(i, i))
---    x = x + 1
---  end
+  gpu.set(centerX - #config.lang.gameOver / 2, centerY, config.lang.gameOver)
 end
 
 local function clearTile(x, y)
-  gpu.setBackground(BACKGROUND_COLOR)
+  gpu.setBackground(config.theme.background)
   gpu.fill(x, y, 2 * tileScale, tileScale, " ")
 end
 
@@ -303,7 +331,7 @@ local function drawTile(x, y, fillColor, borderColor)
   if tileScale == 1 then
     gpu.setBackground(borderColor)
     gpu.setForeground(fillColor)
-    gpu.set(x, y, FILLED_LARGE_SQUARE)
+    gpu.set(x, y, config.theme.tileChar)
   else
     gpu.setBackground(fillColor)
     gpu.setForeground(borderColor)
@@ -345,9 +373,9 @@ local running = true
 local score = 0
 
 local function updateScore()
-  gpu.setBackground(BACKGROUND_COLOR)
-  gpu.setForeground(TEXT_COLOR)
-  gpu.set(1, 1, "Score: " .. score)
+  gpu.setBackground(config.theme.background)
+  gpu.setForeground(config.theme.text)
+  gpu.set(1, 1, config.lang.scorePrefix .. score)
 end
 
 local function increaseScore(amount)
@@ -358,19 +386,19 @@ end
 updateScore()
 
 local field = {}
-for i = HIGHEST_ROW, FIELD_HEIGHT do
+for i = config.gameplay.highestRow, config.gameplay.fieldHeight do
   field[i] = {}
 end
 
 local function displayFieldData()
   local width, height = gpu.getViewport()
-  gpu.set(width - 2 * FIELD_WIDTH + 1, height - FIELD_HEIGHT - FIELD_TOP_BUFFER, text.padRight("Collision Data", 2 * FIELD_WIDTH))
-  for r = HIGHEST_ROW, FIELD_HEIGHT do
-    for c = 1, FIELD_WIDTH do
-      colors = field[r][c] or GRAY_PIECE_COLORS
+  gpu.set(width - 2 * config.gameplay.fieldWidth + 1, height - config.gameplay.fieldHeight - config.gameplay.fieldOverflowHeight, text.padRight("Collision Data", 2 * config.gameplay.fieldWidth))
+  for r = config.gameplay.highestRow, config.gameplay.fieldHeight do
+    for c = 1, config.gameplay.fieldWidth do
+      colors = field[r][c] or config.theme.pieces.gray
       gpu.setBackground(colors[2])
       gpu.setForeground(colors[1])
-      gpu.set(width - 2 * FIELD_WIDTH + 2 * c - 1, height - FIELD_HEIGHT + r, FILLED_LARGE_SQUARE)
+      gpu.set(width - 2 * config.gameplay.fieldWidth + 2 * c - 1, height - config.gameplay.fieldHeight + r, config.theme.tileChar)
     end
   end
 end
@@ -382,13 +410,13 @@ local heldPieceUsed = false
 local function isColliding(piece, x, y)
   for _, tile in ipairs(piece.tiles) do
     local tileX = x + tile[1]
-    if tileX < 1 or tileX > FIELD_WIDTH then
+    if tileX < 1 or tileX > config.gameplay.fieldWidth then
       return true
     end
 
     local tileY = y + tile[2]
     -- tileY <= 0 is allowed (field top buffer)
-    if tileY > FIELD_HEIGHT then
+    if tileY > config.gameplay.fieldHeight then
       return true
     end
 
@@ -455,7 +483,7 @@ end
 maxPieceWidth = maxPieceWidth * 2 * tileScale
 maxPieceHeight = maxPieceHeight * tileScale
 
-local maxPreviewHeight = ((maxPieceHeight + 1) * PREVIEW_LENGTH - 1) * tileScale
+local maxPreviewHeight = ((maxPieceHeight + 1) * config.gameplay.previewLength - 1) * tileScale
 
 local function getUpcomingPiece(index)
   if index > #bag then
@@ -470,13 +498,13 @@ local function drawPreviewPiece(piece, offsetY)
 end
 
 local function clearPreview()
-  gpu.setBackground(BACKGROUND_COLOR)
+  gpu.setBackground(config.theme.background)
   gpu.fill(previewX, previewY, maxPieceWidth, maxPreviewHeight, " ")
 end
 
 local function drawPreview()
   local offsetY = 0
-  for i = 1, PREVIEW_LENGTH do
+  for i = 1, config.gameplay.previewLength do
     local piece = getUpcomingPiece(i)
     drawPreviewPiece(piece, offsetY)
 
@@ -488,8 +516,8 @@ local function updatePreview(removedPiece)
   local removedHeight = (removedPiece.height + 1) * tileScale
 
   -- calculate combined height of the remaining pieces
-  local remainingHeight = PREVIEW_LENGTH - 2 -- initialize to the height of the gaps (in tiles)
-  for i = 1, PREVIEW_LENGTH - 1 do
+  local remainingHeight = config.gameplay.previewLength - 2 -- initialize to the height of the gaps (in tiles)
+  for i = 1, config.gameplay.previewLength - 1 do
     remainingHeight = remainingHeight + getUpcomingPiece(i).height
   end
   remainingHeight = remainingHeight * tileScale
@@ -498,22 +526,22 @@ local function updatePreview(removedPiece)
   gpu.copy(previewX, previewY + removedHeight, maxPieceWidth, remainingHeight, 0, -removedHeight)
 
   -- remove duplicated bottom
-  gpu.setBackground(BACKGROUND_COLOR)
+  gpu.setBackground(config.theme.background)
   gpu.fill(previewX, previewY + remainingHeight, maxPieceWidth, removedHeight, " ")
 
   -- draw new piece
-  drawPreviewPiece(getUpcomingPiece(PREVIEW_LENGTH), remainingHeight + tileScale)
+  drawPreviewPiece(getUpcomingPiece(config.gameplay.previewLength), remainingHeight + tileScale)
 end
 
 local function spawn(piece)
   droppingPiece = piece
   droppingPieceOriginal = piece
-  droppingX = math.ceil(FIELD_WIDTH / 2)
+  droppingX = math.ceil(config.gameplay.fieldWidth / 2)
   droppingY = 0
 
   if isColliding(droppingPiece, droppingX, droppingY) then
     running = false
-    droppingPiece.colors = GRAY_PIECE_COLORS
+    droppingPiece.colors = config.theme.pieces.gray
     showGameOver()
     --os.exit(0)
   end
@@ -556,7 +584,7 @@ end
 
 local function checkComplete(row)
   local rowTable = field[row]
-  for i = 1, FIELD_WIDTH do
+  for i = 1, config.gameplay.fieldWidth do
     if rowTable[i] == nil then
       return false
     end
@@ -568,12 +596,12 @@ local function redrawRow(row)
   local x, y = fieldCoords(1, row)
   
   -- clear out any old tiles
-  gpu.setBackground(BACKGROUND_COLOR)
+  gpu.setBackground(config.theme.background)
   gpu.fill(x, y, fieldWidth, tileScale, " ")
 
   -- draw tiles from field color data
   local rowTable = field[row]
-  for i = 1, FIELD_WIDTH do
+  for i = 1, config.gameplay.fieldWidth do
     local colors = rowTable[i]
     if colors then
       drawTile(x + (i - 1) * 2 * tileScale, y, table.unpack(colors))
@@ -582,7 +610,7 @@ local function redrawRow(row)
 end
 
 local function solidify()
-  local highestAffectedRow = FIELD_HEIGHT
+  local highestAffectedRow = config.gameplay.fieldHeight
   local lowestAffectedRow = 1
 
   for i, tile in ipairs(droppingPiece.tiles) do
@@ -616,14 +644,14 @@ local function solidify()
   if clearedRows == 0 then return 0 end
 
   -- the rows above highestRow cannot be completed, but still need to be moved down
-  for row = highestAffectedRow - 1, HIGHEST_ROW, -1 do
+  for row = highestAffectedRow - 1, config.gameplay.highestRow, -1 do
     field[row + clearedRows] = field[row]
   end
-  local sourceX, sourceY = fieldCoords(1, HIGHEST_ROW)
-  gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - HIGHEST_ROW) * tileScale, 0, clearedRows * tileScale)
+  local sourceX, sourceY = fieldCoords(1, config.gameplay.highestRow)
+  gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - config.gameplay.highestRow) * tileScale, 0, clearedRows * tileScale)
 
   -- the top `clearedRows` rows were not overwritten, so must be explicitly emptied
-  for row = HIGHEST_ROW, HIGHEST_ROW + clearedRows - 1 do
+  for row = config.gameplay.highestRow, config.gameplay.highestRow + clearedRows - 1 do
     field[row] = {}
   end
 
@@ -635,7 +663,7 @@ local function solidify()
   end
 
   -- increase score
-  increaseScore(SCORE_CLEARED_LINES[clearedRows] * LEVEL)
+  increaseScore(config.scoring.clearedLinesScore[clearedRows] * config.scoring.level)
 
   return clearedRows
 end
@@ -696,28 +724,28 @@ end
 local function moveLeft()
   move(-1, 0)
 end
-for i, key in ipairs(KEYS_LEFT) do
+for i, key in ipairs(config.keybinds.left) do
   mapKey(key, moveLeft)
 end
 
 local function moveRight()
   move(1, 0)
 end
-for i, key in ipairs(KEYS_RIGHT) do
+for i, key in ipairs(config.keybinds.right) do
   mapKey(key, moveRight)
 end
 
 local function rotateCounterclockwise()
   rotate(-1)
 end
-for i, key in ipairs(KEYS_ROTATE_COUNTERCLOCKWISE) do
+for i, key in ipairs(config.keybinds.rotateCounterclockwise) do
   mapKey(key, rotateCounterclockwise)
 end
 
 local function rotateClockwise()
   rotate(1)
 end
-for i, key in ipairs(KEYS_ROTATE_CLOCKWISE) do
+for i, key in ipairs(config.keybinds.rotateClockwise) do
   mapKey(key, rotateClockwise)
 end
 
@@ -727,16 +755,16 @@ local function dropHard()
   newPiece()
   tick = 1
 end
-for i, key in ipairs(KEYS_DROP_HARD) do
+for i, key in ipairs(config.keybinds.dropHard) do
   mapKey(key, dropHard)
 end
 
-for i, key in ipairs(KEYS_HOLD) do
+for i, key in ipairs(config.keybinds.hold) do
   mapKey(key, hold)
 end
 
 local softDropCodes = {}
-for i, key in ipairs(KEYS_DROP_SOFT) do
+for i, key in ipairs(config.keybinds.dropSoft) do
   softDropCodes[i] = keyboard.keys[key]
 end
 
@@ -756,8 +784,8 @@ local tick = 1
 local gravityThread = thread.create(function()
   local status, error = pcall(function()
     while running do
-      os.sleep(DROP_INTERVAL)
-      if tick % DROP_KEY_MULTIPLIER == 0 or isAnySoftDropKeyDown() then
+      os.sleep(config.gameplay.dropInterval)
+      if tick % config.gameplay.softDropMultiplier == 0 or isAnySoftDropKeyDown() then
         if not move(0, 1) then
           solidify()
           newPiece()

@@ -284,16 +284,8 @@ else
   gpu.fill(1, 1, width, height, " ")
 end
 
-local tileScale
-if config.gameplay.fieldWidth / config.gameplay.fieldHeight < width // 2 / height
-then -- field is taller than viewport
-  tileScale = height // config.gameplay.fieldHeight
-else -- field is wider than viewport
-  tileScale = width // 2 // config.gameplay.fieldWidth
-end
-
-local fieldWidth = 2 * tileScale * config.gameplay.fieldWidth
-local fieldHeight = tileScale * config.gameplay.fieldHeight
+local fieldWidth = 2 * config.gameplay.fieldWidth
+local fieldHeight = config.gameplay.fieldHeight
 local fieldX = math.floor(width / 2 - fieldWidth / 2 + 1)
 local fieldY = math.floor(height / 2 - fieldHeight / 2 + 1)
 
@@ -304,10 +296,10 @@ gpu.setBackground(config.theme.background)
 gpu.setForeground(config.theme.border)
 gpu.fill(fieldX - 1, fieldY + fieldHeight, fieldWidth + 2, 1, UPPER_HALF_BLOCK) -- Ground
 
-local previewX = fieldX + fieldWidth + 1 + 2 * tileScale
-local previewY = fieldY + 1 + tileScale
+local previewX = fieldX + fieldWidth + 3
+local previewY = fieldY + 2
 
-local holdX = fieldX - 2 - 2 * tileScale
+local holdX = fieldX - 4
 local holdY = previewY
 
 gpu.setBackground(config.theme.background)
@@ -316,7 +308,7 @@ gpu.set(previewX, fieldY, config.lang.previewLabel)
 gpu.set(holdX - #config.lang.holdLabel + 1, fieldY, config.lang.holdLabel)
 
 local function fieldCoords(x, y)
-  return fieldX + (x - 1) * 2 * tileScale, fieldY + (y - 1) * tileScale
+  return fieldX + (x - 1) * 2, fieldY + (y - 1)
 end
 
 local function showGameOver()
@@ -325,42 +317,27 @@ local function showGameOver()
 
   gpu.setForeground(config.theme.text)
   gpu.setBackground(config.theme.gameOverBackground)
-  gpu.fill(fieldX, centerY - tileScale, fieldWidth, 1 + 2 * tileScale, " ")
+  gpu.fill(fieldX, centerY - 1, fieldWidth, 3, " ")
   gpu.set(centerX - #config.lang.gameOver / 2, centerY, config.lang.gameOver)
 end
 
 local function clearTile(x, y)
   gpu.setBackground(config.theme.background)
-  gpu.fill(x, y, 2 * tileScale, tileScale, " ")
+  gpu.fill(x, y, 2, 1, " ")
 end
 
 local function drawTile(x, y, fillColor, borderColor)
   borderColor = borderColor or (depth ~= 8 and config.theme.background or colorMultiply(fillColor, config.theme.pieceBorderMultiplier))
 
-  if tileScale == 1 then
-    gpu.setBackground(borderColor)
-    gpu.setForeground(fillColor)
-    gpu.set(x, y, config.theme.tileChar)
-  else
-    gpu.setBackground(fillColor)
-    gpu.setForeground(borderColor)
-
-    gpu.setBackground(borderColor)
-    gpu.fill(x, y, 1, tileScale, " ") -- left border
-    gpu.fill(x + 2 * tileScale - 1, y, 1, tileScale, " ") -- right border
-
-    gpu.setBackground(fillColor)
-    gpu.setForeground(borderColor)
-    gpu.fill(x + 1, y, 2 * tileScale - 2, 1, UPPER_HALF_BLOCK) -- top border
-    gpu.fill(x + 1, y + tileScale - 1, 2 * tileScale - 2, 1, LOWER_HALF_BLOCK) -- bottom border
-    gpu.fill(x + 1, y + 1, 2 * tileScale - 2, tileScale - 2, " ") -- inside
-  end
+  gpu.setBackground(borderColor)
+  gpu.setForeground(fillColor)
+  gpu.set(x, y, config.theme.tileChar)
 end
 
 local function clearPiece(piece, x, y)
   for _, tile in ipairs(piece.tiles) do
-    local tileX = x + tile[1] * 2 * tileScale
-    local tileY = y + tile[2] * tileScale
+    local tileX = x + tile[1] * 2
+    local tileY = y + tile[2]
 
     clearTile(tileX, tileY)
   end
@@ -370,8 +347,8 @@ local function drawPiece(piece, x, y, fillColor, borderColor)
   fillColor = fillColor or piece.color
 
   for _, tile in ipairs(piece.tiles) do
-    local tileX = x + tile[1] * 2 * tileScale
-    local tileY = y + tile[2] * tileScale
+    local tileX = x + tile[1] * 2
+    local tileY = y + tile[2]
 
     drawTile(tileX, tileY, fillColor, borderColor)
   end
@@ -475,10 +452,9 @@ for i, piece in ipairs(PIECES) do
     maxPieceHeight = piece.height
   end
 end
-maxPieceWidth = maxPieceWidth * 2 * tileScale
-maxPieceHeight = maxPieceHeight * tileScale
+maxPieceWidth = maxPieceWidth * 2
 
-local maxPreviewHeight = ((maxPieceHeight + 1) * config.gameplay.previewLength - 1) * tileScale
+local maxPreviewHeight = (maxPieceHeight + 1) * config.gameplay.previewLength - 1
 
 local function getUpcomingPiece(index)
   if index > #bag then
@@ -489,7 +465,7 @@ local function getUpcomingPiece(index)
 end
 
 local function drawPreviewPiece(piece, offsetY)
-  drawPiece(piece, previewX - piece.minX * 2 * tileScale, previewY + offsetY - piece.minY * tileScale)
+  drawPiece(piece, previewX - piece.minX * 2, previewY + offsetY - piece.minY)
 end
 
 local function clearPreview()
@@ -503,19 +479,18 @@ local function drawPreview()
     local piece = getUpcomingPiece(i)
     drawPreviewPiece(piece, offsetY)
 
-    offsetY = offsetY + (piece.height + 1) * tileScale
+    offsetY = offsetY + piece.height + 1
   end
 end
 
 local function updatePreview(removedPiece)
-  local removedHeight = (removedPiece.height + 1) * tileScale
+  local removedHeight = removedPiece.height + 1
 
   -- calculate combined height of the remaining pieces
   local remainingHeight = config.gameplay.previewLength - 2 -- initialize to the height of the gaps (in tiles)
   for i = 1, config.gameplay.previewLength - 1 do
     remainingHeight = remainingHeight + getUpcomingPiece(i).height
   end
-  remainingHeight = remainingHeight * tileScale
 
   -- shift existing preview up
   gpu.copy(previewX, previewY + removedHeight, maxPieceWidth, remainingHeight, 0, -removedHeight)
@@ -525,7 +500,7 @@ local function updatePreview(removedPiece)
   gpu.fill(previewX, previewY + remainingHeight, maxPieceWidth, removedHeight, " ")
 
   -- draw new piece
-  drawPreviewPiece(getUpcomingPiece(config.gameplay.previewLength), remainingHeight + tileScale)
+  drawPreviewPiece(getUpcomingPiece(config.gameplay.previewLength), remainingHeight + 1)
 end
 
 local function spawn(piece)
@@ -566,7 +541,7 @@ local function hold()
   heldPiece = droppingPieceOriginal
 
   -- draw new held piece
-  drawPiece(heldPiece, holdX - (heldPiece.maxX + 1) * 2 * tileScale + 1, holdY - heldPiece.minY * tileScale)
+  drawPiece(heldPiece, holdX - (heldPiece.maxX + 1) * 2 + 1, holdY - heldPiece.minY)
 
   if previousHeldPiece == nil then
     newPiece()
@@ -591,14 +566,14 @@ local function redrawRow(row)
   
   -- clear out any old tiles
   gpu.setBackground(config.theme.background)
-  gpu.fill(x, y, fieldWidth, tileScale, " ")
+  gpu.fill(x, y, fieldWidth, 1, " ")
 
   -- draw tiles from field color data
   local rowTable = field[row]
   for i = 1, config.gameplay.fieldWidth do
     local color = rowTable[i]
     if color then
-      drawTile(x + (i - 1) * 2 * tileScale, y, color)
+      drawTile(x + (i - 1) * 2, y, color)
     end
   end
 end
@@ -630,7 +605,7 @@ local function solidify()
       -- so it must fall down a number of rows equal to the number that were cleared below it
       field[row + clearedRows] = field[row]
       local sourceX, sourceY = fieldCoords(1, row)
-      gpu.copy(sourceX, sourceY, fieldWidth, tileScale, 0, clearedRows * tileScale)
+      gpu.copy(sourceX, sourceY, fieldWidth, 1, 0, clearedRows)
     end
   end
 
@@ -642,7 +617,7 @@ local function solidify()
     field[row + clearedRows] = field[row]
   end
   local sourceX, sourceY = fieldCoords(1, config.gameplay.highestRow)
-  gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - config.gameplay.highestRow) * tileScale, 0, clearedRows * tileScale)
+  gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - config.gameplay.highestRow), 0, clearedRows)
 
   -- the top `clearedRows` rows were not overwritten, so must be explicitly emptied
   for row = config.gameplay.highestRow, config.gameplay.highestRow + clearedRows - 1 do
@@ -651,7 +626,7 @@ local function solidify()
 
   -- the rows at the very top of the viewport need to be redrawn since they were not previously visible
   -- the highest row that does NOT need to be redrawn is the one that is `clearedRows` rows down from the highest FULLY VISIBLE row
-  local highestVisibleRow = 1 - (fieldY - 1) / tileScale
+  local highestVisibleRow = 1 - (fieldY - 1)
   for row = math.floor(highestVisibleRow), math.ceil(highestVisibleRow) + clearedRows - 1 do
     redrawRow(row)
   end

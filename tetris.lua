@@ -4,7 +4,6 @@ local thread = require("thread")
 local unicode = require("unicode")
 local keyboard = require("keyboard")
 local filesystem = require("filesystem")
-local text = require("text") -- NOTE: Only used for debug stuff
 
 -- Configuration --
 
@@ -41,17 +40,17 @@ theme = {
   text = 0xFFFFFF,
   gameOverBackground = 0xCC0000,
   tileCharCode = 0x2B1B, -- filled large square
-  shadowMultiplier = 0.5,
+  shadow = 0x000000,
+  shadowBorder = 0x444444,
+  pieceBorderMultiplier = 0.425,
   pieces = {
---  type = {foreground, background}
-    gray = {0xA0A0A0, 0x444444},
-    I = {0x00F0F0, 0x006666},
-    J = {0x0000F0, 0x000066},
-    L = {0xF0A000, 0x664400},
-    O = {0xF0F000, 0x666600},
-    S = {0x00F000, 0x006600},
-    T = {0xA000F0, 0x440066},
-    Z = {0xF00000, 0x660000}
+    I = 0x00F0F0,
+    J = 0x0000F0,
+    L = 0xF0A000,
+    O = 0xF0F000,
+    S = 0x00F000,
+    T = 0xA000F0,
+    Z = 0xF00000,
   }
 }
 lang = {
@@ -78,27 +77,27 @@ local function loadConfig()
     end
   end
 
-  local env = {}
-  local config = loadfile("/etc/tetris.cfg", nil, env)
-  if config then
-    pcall(config)
+  local config = {}
+  local code = loadfile("/etc/tetris.cfg", nil, config)
+  if code then
+    pcall(code)
   end
 
   --FIXME: Entries may be missing if config file was edited
 
-  if env.gameplay.previewLength > 7 then
+  if config.gameplay.previewLength > 7 then
     -- There may only be 7 upcoming pieces available (one full bag)
     -- So limit preview length to avoid issues
-    env.gameplay.previewLength = 7
+    config.gameplay.previewLength = 7
   end
   --TODO: More validation
 
   -- Precalculate additional constants
-  env.gameplay.highestRow = 1 - env.gameplay.fieldOverflowHeight
-  env.gameplay.dropInterval = 1 / (env.gameplay.dropSpeed * env.gameplay.softDropMultiplier)
-  env.theme.tileChar = unicode.char(env.theme.tileCharCode)
+  config.gameplay.highestRow = 1 - config.gameplay.fieldOverflowHeight
+  config.gameplay.dropInterval = 1 / (config.gameplay.dropSpeed * config.gameplay.softDropMultiplier)
+  config.theme.tileChar = unicode.char(config.theme.tileCharCode)
 
-  return env
+  return config
 end
 
 local config = loadConfig()
@@ -169,7 +168,7 @@ end
 local Piece = {}
 Piece.__index = Piece
 
-function Piece.new(colors, tiles, offsets)
+function Piece.new(color, tiles, offsets)
   -- pre-calculate width and height
   local minX, minY = tiles[1][1], tiles[1][2]
   local maxX, maxY = tiles[1][1], tiles[1][2]
@@ -182,11 +181,7 @@ function Piece.new(colors, tiles, offsets)
   end
 
   return setmetatable({
-    colors=colors,
-    shadowColors={
-      colorMultiply(colors[1], config.theme.shadowMultiplier),
-      colorMultiply(colors[2], config.theme.shadowMultiplier)
-    },
+    color=color,
     tiles=tiles,
     rotation=1,
     offsets=offsets,
@@ -270,12 +265,42 @@ end
 
 local gpu = term.gpu()
 
+local width, height = gpu.getViewport()
+local depth = gpu.getDepth()
+
 local originalBackground = {gpu.getBackground()}
 local originalForeground = {gpu.getForeground()}
+local originalPalette = nil
+if depth == 4 then
+  gpu.fill(1, 1, width, height, " ") -- clear any existing colors before altering palette
+  local _, fg, bg, fgi, bgi = gpu.get(1, 1)
+  originalPalette = {originalBackgroundIndex = bgi}
+  for i = 0, 15 do
+    originalPalette[i] = gpu.getPaletteColor(i)
+  end
 
-local width, height = gpu.getViewport()
-gpu.setBackground(config.theme.background)
-gpu.fill(1, 1, width, height, " ")
+  gpu.setPaletteColor(0, config.theme.background)
+  gpu.setBackground(0, true)
+  gpu.fill(1, 1, width, height, " ")
+
+  gpu.setPaletteColor(1, config.theme.pieces.I)
+  gpu.setPaletteColor(2, config.theme.pieces.J)
+  gpu.setPaletteColor(3, config.theme.pieces.L)
+  gpu.setPaletteColor(4, config.theme.pieces.O)
+  gpu.setPaletteColor(5, config.theme.pieces.S)
+  gpu.setPaletteColor(6, config.theme.pieces.T)
+  gpu.setPaletteColor(7, config.theme.pieces.Z)
+
+  gpu.setPaletteColor(8, config.theme.shadow)
+  gpu.setPaletteColor(9, config.theme.shadowBorder)
+  gpu.setPaletteColor(10, config.theme.border)
+  gpu.setPaletteColor(11, config.theme.gameOverBackground)
+  gpu.setPaletteColor(15, config.theme.text)
+
+else
+  gpu.setBackground(config.theme.background)
+  gpu.fill(1, 1, width, height, " ")
+end
 
 local tileScale
 if config.gameplay.fieldWidth / config.gameplay.fieldHeight < width // 2 / height
@@ -328,6 +353,8 @@ local function clearTile(x, y)
 end
 
 local function drawTile(x, y, fillColor, borderColor)
+  borderColor = borderColor or (depth ~= 8 and config.theme.background or colorMultiply(fillColor, config.theme.pieceBorderMultiplier))
+
   if tileScale == 1 then
     gpu.setBackground(borderColor)
     gpu.setForeground(fillColor)
@@ -357,9 +384,8 @@ local function clearPiece(piece, x, y)
   end
 end
 
-local function drawPiece(piece, x, y, colors)
-  colors = colors or piece.colors
-  fillColor, borderColor = table.unpack(colors)
+local function drawPiece(piece, x, y, fillColor, borderColor)
+  fillColor = fillColor or piece.color
 
   for _, tile in ipairs(piece.tiles) do    
     local tileX = x + tile[1] * 2 * tileScale
@@ -388,19 +414,6 @@ updateScore()
 local field = {}
 for i = config.gameplay.highestRow, config.gameplay.fieldHeight do
   field[i] = {}
-end
-
-local function displayFieldData()
-  local width, height = gpu.getViewport()
-  gpu.set(width - 2 * config.gameplay.fieldWidth + 1, height - config.gameplay.fieldHeight - config.gameplay.fieldOverflowHeight, text.padRight("Collision Data", 2 * config.gameplay.fieldWidth))
-  for r = config.gameplay.highestRow, config.gameplay.fieldHeight do
-    for c = 1, config.gameplay.fieldWidth do
-      colors = field[r][c] or config.theme.pieces.gray
-      gpu.setBackground(colors[2])
-      gpu.setForeground(colors[1])
-      gpu.set(width - 2 * config.gameplay.fieldWidth + 2 * c - 1, height - config.gameplay.fieldHeight + r, config.theme.tileChar)
-    end
-  end
 end
 
 local droppingPiece, droppingX, droppingY
@@ -444,7 +457,7 @@ end
 
 local function drawDroppingPiece()
   x, y = fieldCoords(droppingX, calcDropY())
-  drawPiece(droppingPiece, x, y, droppingPiece.shadowColors)
+  drawPiece(droppingPiece, x, y, config.theme.shadow, config.theme.shadowBorder)
   drawPiece(droppingPiece, fieldCoords(droppingX, droppingY))
 end
 
@@ -541,9 +554,8 @@ local function spawn(piece)
 
   if isColliding(droppingPiece, droppingX, droppingY) then
     running = false
-    droppingPiece.colors = config.theme.pieces.gray
     showGameOver()
-    --os.exit(0)
+    return
   end
 
   drawDroppingPiece()
@@ -602,9 +614,9 @@ local function redrawRow(row)
   -- draw tiles from field color data
   local rowTable = field[row]
   for i = 1, config.gameplay.fieldWidth do
-    local colors = rowTable[i]
-    if colors then
-      drawTile(x + (i - 1) * 2 * tileScale, y, table.unpack(colors))
+    local color = rowTable[i]
+    if color then
+      drawTile(x + (i - 1) * 2 * tileScale, y, color)
     end
   end
 end
@@ -622,7 +634,7 @@ local function solidify()
     if tileY > lowestAffectedRow then lowestAffectedRow = tileY end
 
     -- copy tile data into the field
-    field[tileY][tileX] = droppingPiece.colors
+    field[tileY][tileX] = droppingPiece.color
   end
 
   -- clear completed rows while moving down incomplete rows that are between them
@@ -822,6 +834,18 @@ end
 
 gravityThread:kill()
 
+if originalPalette ~= nil then
+  gpu.setBackground(0, true)
+  gpu.fill(1, 1, width, height, " ") -- clear any existing colors before altering palette
+  gpu.setPaletteColor(originalPalette.originalBackgroundIndex, originalBackground[1])
+  gpu.setBackground(originalPalette.originalBackgroundIndex, true)
+  gpu.fill(1, 1, width, height, " ")
+
+  for i = 0, 15 do
+    gpu.setPaletteColor(i, originalPalette[i])
+  end
+end
 gpu.setBackground(table.unpack(originalBackground))
 gpu.setForeground(table.unpack(originalForeground))
+
 term.clear()

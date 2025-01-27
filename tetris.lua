@@ -358,7 +358,7 @@ local function drawTile(x, y, fillColor, borderColor)
 end
 
 local function clearPiece(piece, x, y)
-  for _, tile in ipairs(piece.tiles) do    
+  for _, tile in ipairs(piece.tiles) do
     local tileX = x + tile[1] * 2 * tileScale
     local tileY = y + tile[2] * tileScale
 
@@ -369,7 +369,7 @@ end
 local function drawPiece(piece, x, y, fillColor, borderColor)
   fillColor = fillColor or piece.color
 
-  for _, tile in ipairs(piece.tiles) do    
+  for _, tile in ipairs(piece.tiles) do
     local tileX = x + tile[1] * 2 * tileScale
     local tileY = y + tile[2] * tileScale
 
@@ -794,7 +794,7 @@ local gravityThread = thread.create(function()
     gpu.setBackground(table.unpack(originalBackground))
     gpu.setForeground(table.unpack(originalForeground))
     io.stderr:write(error)
-  end  
+  end
 end)
 
 -- User Input Loop --

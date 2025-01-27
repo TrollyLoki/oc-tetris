@@ -761,6 +761,8 @@ for i, key in ipairs(config.keybinds.rotateClockwise) do
   mapKey(key, rotateClockwise)
 end
 
+local tick = 1
+
 local function dropHard()
   drop()
   solidify()
@@ -790,8 +792,6 @@ local function isAnySoftDropKeyDown()
 end
 
 -- Gravity Loop --
-
-local tick = 1
 
 local gravityThread = thread.create(function()
   local status, error = pcall(function()

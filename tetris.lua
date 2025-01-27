@@ -136,24 +136,6 @@ local function colorMultiply(color, multiplier)
   return (red << 16) | (green << 8) | (blue)
 end
 
-local function applyTransparency(bottomColor, topColor, opacity)
-  local transparency = 1 - opacity
-
-  local bottomRed = (bottomColor >> 16) & 0xFF
-  local bottomGreen = (bottomColor >> 8) & 0xFF
-  local bottomBlue = (bottomColor) & 0xFF
-
-  local topRed = (topColor >> 16) & 0xFF
-  local topGreen = (topColor >> 8) & 0xFF
-  local topBlue = (topColor) & 0xFF
-
-  local red = math.floor(transparency * bottomRed + opacity * topRed)
-  local green = math.floor(transparency * bottomGreen + opacity * topGreen)
-  local blue = math.floor(transparency * bottomBlue + opacity * topBlue)
-
-  return (red << 16) | (green << 8) | (blue)
-end
-
 -- Pieces
 -- https://harddrop.com/wiki/SRS#How_Guideline_SRS_Really_Works
 -- Y-coordinates are flipped since POSITIVE Y is down in OpenComputers

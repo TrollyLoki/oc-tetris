@@ -456,7 +456,7 @@ local function clearDroppingPiece()
 end
 
 local function drawDroppingPiece()
-  x, y = fieldCoords(droppingX, calcDropY())
+  local x, y = fieldCoords(droppingX, calcDropY())
   drawPiece(droppingPiece, x, y, config.theme.shadow, config.theme.shadowBorder)
   drawPiece(droppingPiece, fieldCoords(droppingX, droppingY))
 end

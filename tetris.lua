@@ -564,7 +564,7 @@ end
 
 local function redrawRow(row)
   local x, y = fieldCoords(1, row)
-  
+
   -- clear out any old tiles
   gpu.setBackground(config.theme.background)
   gpu.fill(x, y, fieldWidth, 1, " ")

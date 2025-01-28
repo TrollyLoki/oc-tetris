@@ -695,40 +695,24 @@ local function mapKey(key, action)
   keyMap[keyboard.keys[key]] = action
 end
 
-local function moveLeft()
-  move(-1, 0)
-end
 for i, key in ipairs(config.keybinds.left) do
-  mapKey(key, moveLeft)
+  mapKey(key, function () move(-1, 0) end)
 end
 
-local function moveRight()
-  move(1, 0)
-end
 for i, key in ipairs(config.keybinds.right) do
-  mapKey(key, moveRight)
+  mapKey(key, function () move(1, 0) end)
 end
 
-local function rotateCounterclockwise()
-  rotate(-1)
-end
 for i, key in ipairs(config.keybinds.rotateCounterclockwise) do
-  mapKey(key, rotateCounterclockwise)
+  mapKey(key, function () rotate(-1) end)
 end
 
-local function rotateClockwise()
-  rotate(1)
-end
 for i, key in ipairs(config.keybinds.rotateClockwise) do
-  mapKey(key, rotateClockwise)
+  mapKey(key, function () rotate(1) end)
 end
 
-local function dropHard()
-  drop()
-  solidify()
-end
 for i, key in ipairs(config.keybinds.dropHard) do
-  mapKey(key, dropHard)
+  mapKey(key, function () drop() solidify() end)
 end
 
 for i, key in ipairs(config.keybinds.hold) do

@@ -379,6 +379,7 @@ end
 local droppingPiece, droppingX, droppingY
 local droppingPieceOriginal, heldPiece
 local heldPieceUsed = false
+local gravityTick
 
 local function isColliding(piece, x, y)
   for _, tile in ipairs(piece.tiles) do
@@ -528,6 +529,7 @@ local function newPiece()
   updatePreview(nextPiece)
 
   heldPieceUsed = false
+  gravityTick = 1
   spawn(nextPiece)
 end
 
@@ -610,32 +612,34 @@ local function solidify()
     end
   end
 
-  -- if no rows were cleared, there is nothing else to do
-  if clearedRows == 0 then return 0 end
+  -- if rows were cleared, then we need to update the field and score
+  if clearedRows ~= 0 then
 
-  -- the rows above highestRow cannot be completed, but still need to be moved down
-  for row = highestAffectedRow - 1, config.gameplay.highestRow, -1 do
-    field[row + clearedRows] = field[row]
+    -- the rows above highestRow cannot be completed, but still need to be moved down
+    for row = highestAffectedRow - 1, config.gameplay.highestRow, -1 do
+      field[row + clearedRows] = field[row]
+    end
+    local sourceX, sourceY = fieldCoords(1, config.gameplay.highestRow)
+    gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - config.gameplay.highestRow), 0, clearedRows)
+
+    -- the top `clearedRows` rows were not overwritten, so must be explicitly emptied
+    for row = config.gameplay.highestRow, config.gameplay.highestRow + clearedRows - 1 do
+      field[row] = {}
+    end
+
+    -- the rows at the very top of the viewport need to be redrawn since they were not previously visible
+    -- the highest row that does NOT need to be redrawn is the one that is `clearedRows` rows down from the highest FULLY VISIBLE row
+    local highestVisibleRow = 1 - (fieldY - 1)
+    for row = math.floor(highestVisibleRow), math.ceil(highestVisibleRow) + clearedRows - 1 do
+      redrawRow(row)
+    end
+
+    -- increase score
+    increaseScore(config.scoring.clearedLinesScore[clearedRows] * config.scoring.level)
+
   end
-  local sourceX, sourceY = fieldCoords(1, config.gameplay.highestRow)
-  gpu.copy(sourceX, sourceY, fieldWidth, (highestAffectedRow - config.gameplay.highestRow), 0, clearedRows)
 
-  -- the top `clearedRows` rows were not overwritten, so must be explicitly emptied
-  for row = config.gameplay.highestRow, config.gameplay.highestRow + clearedRows - 1 do
-    field[row] = {}
-  end
-
-  -- the rows at the very top of the viewport need to be redrawn since they were not previously visible
-  -- the highest row that does NOT need to be redrawn is the one that is `clearedRows` rows down from the highest FULLY VISIBLE row
-  local highestVisibleRow = 1 - (fieldY - 1)
-  for row = math.floor(highestVisibleRow), math.ceil(highestVisibleRow) + clearedRows - 1 do
-    redrawRow(row)
-  end
-
-  -- increase score
-  increaseScore(config.scoring.clearedLinesScore[clearedRows] * config.scoring.level)
-
-  return clearedRows
+  newPiece()
 end
 
 drawPreview()
@@ -719,13 +723,9 @@ for i, key in ipairs(config.keybinds.rotateClockwise) do
   mapKey(key, rotateClockwise)
 end
 
-local tick = 1
-
 local function dropHard()
   drop()
   solidify()
-  newPiece()
-  tick = 1
 end
 for i, key in ipairs(config.keybinds.dropHard) do
   mapKey(key, dropHard)
@@ -755,14 +755,13 @@ local gravityThread = thread.create(function()
   local status, error = pcall(function()
     while running do
       os.sleep(config.gameplay.dropInterval)
-      if tick % config.gameplay.softDropMultiplier == 0 or isAnySoftDropKeyDown() then
+      if gravityTick % config.gameplay.softDropMultiplier == 0 or isAnySoftDropKeyDown() then
         if not move(0, 1) then
           solidify()
-          newPiece()
         end
-        tick = 1
+        gravityTick = 1
       else
-        tick = tick + 1
+        gravityTick = gravityTick + 1
       end
     end
   end)

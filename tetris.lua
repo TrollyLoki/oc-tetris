@@ -312,13 +312,14 @@ local function fieldCoords(x, y)
 end
 
 local function showGameOver()
-  local centerX = fieldX + (fieldWidth - 1) / 2
+  local textX = fieldX + (fieldWidth - #config.lang.gameOver) / 2
   local centerY = fieldY + (fieldHeight - 1) / 2
 
   gpu.setForeground(config.theme.text)
   gpu.setBackground(config.theme.gameOverBackground)
+
   gpu.fill(fieldX, centerY - 1, fieldWidth, 3, " ")
-  gpu.set(centerX - #config.lang.gameOver / 2, centerY, config.lang.gameOver)
+  gpu.set(textX, centerY, config.lang.gameOver)
 end
 
 local function clearTile(x, y)

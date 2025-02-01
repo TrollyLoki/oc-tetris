@@ -3,6 +3,7 @@ local event = require("event")
 local thread = require("thread")
 local unicode = require("unicode")
 local keyboard = require("keyboard")
+local computer = require("computer")
 local filesystem = require("filesystem")
 
 -- Configuration --
@@ -30,8 +31,9 @@ gameplay = {
   fieldWidth = 10,
   fieldHeight = 20,
   fieldOverflowHeight = 20,
-  dropSpeed = 1,
-  softDropMultiplier = 10,
+  gravity = 1, -- tiles per second,
+  lockDelay = 0.5, -- seconds
+  softDropFactor = 10,
   previewLength = 6
 }
 theme = {
@@ -94,7 +96,7 @@ local function loadConfig()
 
   -- Precalculate additional constants
   config.gameplay.highestRow = 1 - config.gameplay.fieldOverflowHeight
-  config.gameplay.dropInterval = 1 / (config.gameplay.dropSpeed * config.gameplay.softDropMultiplier)
+  config.gameplay.gravityInterval = 1 / (config.gameplay.gravity * config.gameplay.softDropFactor)
   config.theme.tileChar = unicode.char(config.theme.tileCharCode)
 
   return config
@@ -379,7 +381,22 @@ end
 local droppingPiece, droppingX, droppingY
 local droppingPieceOriginal, heldPiece
 local heldPieceUsed = false
+local lockTime
+local nextGravityTime
 local gravityTick
+
+local function resetNextGravityTime()
+  nextGravityTime = computer.uptime() + config.gameplay.gravityInterval
+end
+
+local function resetGravity()
+  gravityTick = 1
+  resetNextGravityTime()
+end
+
+local function resetLockDelay()
+  lockTime = computer.uptime() + config.gameplay.lockDelay
+end
 
 local function isColliding(piece, x, y)
   for _, tile in ipairs(piece.tiles) do
@@ -399,6 +416,10 @@ local function isColliding(piece, x, y)
     end
   end
   return false
+end
+
+local function droppingPieceIsOnGround()
+  return isColliding(droppingPiece, droppingX, droppingY + 1)
 end
 
 local function calcDropY()
@@ -529,7 +550,8 @@ local function newPiece()
   updatePreview(nextPiece)
 
   heldPieceUsed = false
-  gravityTick = 1
+  resetGravity()
+  resetLockDelay()
   spawn(nextPiece)
 end
 
@@ -658,6 +680,7 @@ local function move(right, down)
   droppingY = newY
   drawDroppingPiece()
 
+  resetLockDelay()
   return true
 end
 
@@ -675,6 +698,8 @@ local function rotate(direction)
       droppingX = droppingX + translationX
       droppingY = droppingY + translationY
       drawDroppingPiece()
+
+      resetLockDelay()
       return true
 
     end
@@ -686,6 +711,8 @@ local function drop()
   clearDroppingPiece()
   droppingY = calcDropY()
   drawDroppingPiece()
+
+  resetLockDelay()
 end
 
 -- Generate Keymap --
@@ -738,14 +765,19 @@ end
 local gravityThread = thread.create(function()
   local status, error = pcall(function()
     while running do
-      os.sleep(config.gameplay.dropInterval)
-      if gravityTick % config.gameplay.softDropMultiplier == 0 or isAnySoftDropKeyDown() then
-        if not move(0, 1) then
-          solidify()
+      os.sleep(0)
+      local time = computer.uptime()
+
+      if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
+        solidify()
+      end
+
+      if time >= nextGravityTime then
+        if gravityTick == 0 or isAnySoftDropKeyDown() then
+          move(0, 1)
         end
-        gravityTick = 1
-      else
-        gravityTick = gravityTick + 1
+        gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
+        resetNextGravityTime()
       end
     end
   end)

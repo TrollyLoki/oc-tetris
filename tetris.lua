@@ -16,7 +16,8 @@ keybinds = {
   hold = {"c", "lshift", "rshift", "numpad0"},
   softDrop = {"down", "numpad2"},
   sonicDrop = {"pageDown"}, -- instant soft drop
-  hardDrop = {"space", "numpad8"}
+  hardDrop = {"space", "numpad8"},
+  quit = {"q"}
 }
 scoring = {
   level = 1,
@@ -742,21 +743,26 @@ for i, key in ipairs(config.keybinds.hold) do
   mapKey(key, hold)
 end
 
-for i, key in ipairs(config.keybinds.hardDrop) do
-  mapKey(key, function () drop() solidify() end)
-end
-
 for i, key in ipairs(config.keybinds.sonicDrop) do
   mapKey(key, drop)
 end
 
+for i, key in ipairs(config.keybinds.hardDrop) do
+  mapKey(key, function () drop() solidify() end)
+end
+
+local quitCodes = {}
+for i, key in ipairs(config.keybinds.quit) do
+  quitCodes[keyboard.keys[key]] = true
+end
+
 local softDropCodes = {}
 for i, key in ipairs(config.keybinds.softDrop) do
-  softDropCodes[i] = keyboard.keys[key]
+  softDropCodes[keyboard.keys[key]] = true
 end
 
 local function isAnySoftDropKeyDown()
-  for i, code in ipairs(softDropCodes) do
+  for code in pairs(softDropCodes) do
     if keyboard.isKeyDown(code) then
       return true
     end
@@ -766,34 +772,38 @@ end
 
 -- Game Loop --
 
-while running do
-  -- User Input --
-  local id, _, _, code = event.pullMultiple(0, "key_down", "interrupted")
-  if id == "interrupted" then break
-  elseif id == "key_down" then
-    local action = keyMap[code]
-    if action then action() end
-  end
-
-  -- Gravity --
-  local time = computer.uptime()
-
-  if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
-    solidify()
-  end
-
-  if time >= nextGravityTime then
-    if gravityTick == 0 or isAnySoftDropKeyDown() then
-      move(0, 1)
+local function gameLoop()
+  while true do
+    -- User Input --
+    local id, _, _, code = event.pull(0, "key_down")
+    if id then
+      local action = keyMap[code]
+      if action then
+        if running then action() end
+      elseif quitCodes[code] then
+        return -- stop game loop
+      end
     end
-    gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
-    resetNextGravityTime()
+
+    if running then
+      -- Gravity --
+      local time = computer.uptime()
+
+      if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
+        solidify()
+      end
+
+      if time >= nextGravityTime then
+        if gravityTick == 0 or isAnySoftDropKeyDown() then
+          move(0, 1)
+        end
+        gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
+        resetNextGravityTime()
+      end
+    end
   end
 end
-
-if not running then
-  event.pull("interrupted")
-end
+gameLoop()
 
 -- Cleanup --
 

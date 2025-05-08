@@ -14,9 +14,10 @@ keybinds = {
   right = {"right", "numpad6"},
   rotateCounterclockwise = {"z", "lcontrol", "rcontrol", "numpad3", "numpad7"},
   rotateClockwise = {"x", "up", "numpad1", "numpad5", "numpad9"},
-  dropSoft = {"down", "numpad2"},
-  dropHard = {"space", "numpad8", "pageDown"},
-  hold = {"c", "lshift", "rshift", "numpad0"}
+  hold = {"c", "lshift", "rshift", "numpad0"},
+  softDrop = {"down", "numpad2"},
+  sonicDrop = {"pageDown"}, -- instant soft drop
+  hardDrop = {"space", "numpad8"}
 }
 scoring = {
   level = 1,
@@ -738,16 +739,20 @@ for i, key in ipairs(config.keybinds.rotateClockwise) do
   mapKey(key, function () rotate(1) end)
 end
 
-for i, key in ipairs(config.keybinds.dropHard) do
-  mapKey(key, function () drop() solidify() end)
-end
-
 for i, key in ipairs(config.keybinds.hold) do
   mapKey(key, hold)
 end
 
+for i, key in ipairs(config.keybinds.hardDrop) do
+  mapKey(key, function () drop() solidify() end)
+end
+
+for i, key in ipairs(config.keybinds.sonicDrop) do
+  mapKey(key, drop)
+end
+
 local softDropCodes = {}
-for i, key in ipairs(config.keybinds.dropSoft) do
+for i, key in ipairs(config.keybinds.softDrop) do
   softDropCodes[i] = keyboard.keys[key]
 end
 

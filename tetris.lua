@@ -1,6 +1,5 @@
 local term = require("term")
 local event = require("event")
-local thread = require("thread")
 local unicode = require("unicode")
 local keyboard = require("keyboard")
 local computer = require("computer")
@@ -765,42 +764,30 @@ local function isAnySoftDropKeyDown()
   return false
 end
 
--- Gravity Loop --
-
-local gravityThread = thread.create(function()
-  local status, error = pcall(function()
-    while running do
-      os.sleep(0)
-      local time = computer.uptime()
-
-      if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
-        solidify()
-      end
-
-      if time >= nextGravityTime then
-        if gravityTick == 0 or isAnySoftDropKeyDown() then
-          move(0, 1)
-        end
-        gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
-        resetNextGravityTime()
-      end
-    end
-  end)
-  if not status then
-    gpu.setBackground(table.unpack(originalBackground))
-    gpu.setForeground(table.unpack(originalForeground))
-    io.stderr:write(error)
-  end
-end)
-
--- User Input Loop --
+-- Game Loop --
 
 while running do
-  local id, _, char, code = event.pullMultiple("key_down", "interrupted")
+  -- User Input --
+  local id, _, _, code = event.pullMultiple(0, "key_down", "interrupted")
   if id == "interrupted" then break
   elseif id == "key_down" then
     local action = keyMap[code]
     if action then action() end
+  end
+
+  -- Gravity --
+  local time = computer.uptime()
+
+  if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
+    solidify()
+  end
+
+  if time >= nextGravityTime then
+    if gravityTick == 0 or isAnySoftDropKeyDown() then
+      move(0, 1)
+    end
+    gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
+    resetNextGravityTime()
   end
 end
 
@@ -809,8 +796,6 @@ if not running then
 end
 
 -- Cleanup --
-
-gravityThread:kill()
 
 if originalPalette ~= nil then
   gpu.setBackground(0, true)

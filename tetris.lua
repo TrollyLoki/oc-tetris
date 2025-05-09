@@ -46,6 +46,7 @@ theme = {
   shadow = 0x111111,
   shadowBorder = 0x444444,
   pieceBorderMultiplier = 0.425,
+  disabledPiece = 0xA0A0A0,
   pieces = {
     I = 0x00F0F0,
     J = 0x0000F0,
@@ -275,10 +276,13 @@ if depth == 4 then
   gpu.setPaletteColor(6, config.theme.pieces.T)
   gpu.setPaletteColor(7, config.theme.pieces.Z)
 
-  gpu.setPaletteColor(8, config.theme.shadow)
-  gpu.setPaletteColor(9, config.theme.shadowBorder)
-  gpu.setPaletteColor(10, config.theme.border)
-  gpu.setPaletteColor(11, config.theme.gameOverBackground)
+  gpu.setPaletteColor(8, config.theme.disabledPiece)
+
+  gpu.setPaletteColor(11, config.theme.shadow)
+  gpu.setPaletteColor(12, config.theme.shadowBorder)
+
+  gpu.setPaletteColor(13, config.theme.border)
+  gpu.setPaletteColor(14, config.theme.gameOverBackground)
   gpu.setPaletteColor(15, config.theme.text)
 
 else
@@ -520,6 +524,11 @@ local function updatePreview(removedPiece)
   drawPreviewPiece(getUpcomingPiece(config.gameplay.previewLength), remainingHeight + 1)
 end
 
+local function drawHeldPiece()
+  local color = heldPieceUsed and config.theme.disabledPiece or nil
+  drawPiece(heldPiece, holdX - (heldPiece.maxX + 1) * 2 + 1, holdY - heldPiece.minY, color)
+end
+
 local function spawn(piece)
   droppingPiece = piece
   droppingPieceOriginal = piece
@@ -532,6 +541,8 @@ local function spawn(piece)
     return
   end
 
+  resetGravity()
+  resetLockDelay()
   drawDroppingPiece()
 end
 
@@ -543,10 +554,13 @@ local function newPiece()
 
   updatePreview(nextPiece)
 
-  heldPieceUsed = false
-  resetGravity()
-  resetLockDelay()
   spawn(nextPiece)
+
+  if heldPieceUsed then
+      heldPieceUsed = false
+      -- update color of drawn held piece
+      drawHeldPiece()
+  end
 end
 
 local function hold()
@@ -559,15 +573,14 @@ local function hold()
   local previousHeldPiece = heldPiece
   heldPiece = droppingPieceOriginal
 
-  -- draw new held piece
-  drawPiece(heldPiece, holdX - (heldPiece.maxX + 1) * 2 + 1, holdY - heldPiece.minY)
-
   if previousHeldPiece == nil then
     newPiece()
   else
     spawn(previousHeldPiece)
     heldPieceUsed = true
   end
+
+  drawHeldPiece()
 end
 
 local function checkComplete(row)

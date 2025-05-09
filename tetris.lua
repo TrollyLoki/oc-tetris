@@ -97,7 +97,6 @@ local function loadConfig()
 
   -- Precalculate additional constants
   config.gameplay.highestRow = 1 - config.gameplay.fieldOverflowHeight
-  config.gameplay.gravityInterval = 1 / (config.gameplay.gravity * config.gameplay.softDropFactor)
   config.theme.tileChar = unicode.char(config.theme.tileCharCode)
 
   return config
@@ -383,16 +382,10 @@ local droppingPiece, droppingX, droppingY
 local droppingPieceOriginal, heldPiece
 local heldPieceUsed = false
 local lockTime
-local nextGravityTime
-local gravityTick
-
-local function resetNextGravityTime()
-  nextGravityTime = computer.uptime() + config.gameplay.gravityInterval
-end
+local gravityDebt = 0
 
 local function resetGravity()
-  gravityTick = 1
-  resetNextGravityTime()
+  gravityDebt = 0
 end
 
 local function resetLockDelay()
@@ -773,7 +766,13 @@ end
 -- Game Loop --
 
 local function gameLoop()
+  local previousTime = computer.uptime()
+
   while true do
+    local time = computer.uptime()
+    local deltaTime = time - previousTime
+    previousTime = time
+
     -- User Input --
     local id, _, _, code = event.pull(0, "key_down")
     if id then
@@ -786,19 +785,23 @@ local function gameLoop()
     end
 
     if running then
-      -- Gravity --
-      local time = computer.uptime()
-
+      -- Lock Delay --
       if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
         solidify()
       end
 
-      if time >= nextGravityTime then
-        if gravityTick == 0 or isAnySoftDropKeyDown() then
-          move(0, 1)
-        end
-        gravityTick = (gravityTick + 1) % config.gameplay.softDropFactor
-        resetNextGravityTime()
+      -- Gravity --
+      local gravity = config.gameplay.gravity
+      if isAnySoftDropKeyDown() then
+        gravity = gravity * config.gameplay.softDropFactor
+      end
+
+      gravityDebt = gravityDebt + gravity * deltaTime
+
+      local wholeTiles
+      wholeTiles, gravityDebt = math.modf(gravityDebt)
+      for _ = 1, wholeTiles do
+        move(0, 1)
       end
     end
   end

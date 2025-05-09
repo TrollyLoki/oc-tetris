@@ -786,8 +786,12 @@ local function gameLoop()
 
     if running then
       -- Lock Delay --
-      if lockTime ~= nil and time >= lockTime and droppingPieceIsOnGround() then
-        solidify()
+      if lockTime ~= nil and time >= lockTime then
+        if droppingPieceIsOnGround() then
+          solidify()
+        else
+          lockTime = nil
+        end
       end
 
       -- Gravity --

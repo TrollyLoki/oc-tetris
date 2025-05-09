@@ -246,6 +246,15 @@ function Piece:rotate(direction)
   return kickTranslations
 end
 
+function Piece:hasTile(x, y)
+  for _, tile in ipairs(self.tiles) do
+    if tile[1] == x and tile[2] == y then
+      return true
+    end
+  end
+  return false
+end
+
 -- Setup --
 
 local gpu = term.gpu()
@@ -341,23 +350,41 @@ local function drawTile(x, y, fillColor, borderColor)
   gpu.set(x, y, config.theme.tileChar)
 end
 
-local function clearPiece(piece, x, y)
+local function clearPiece(piece, x, y, underOffset)
   for _, tile in ipairs(piece.tiles) do
-    local tileX = x + tile[1] * 2
-    local tileY = y + tile[2]
+    if not (underOffset and piece:hasTile(tile[1], tile[2] + underOffset)) then
 
-    clearTile(tileX, tileY)
+      local tileX = x + tile[1] * 2
+      local tileY = y + tile[2]
+
+      clearTile(tileX, tileY)
+    end
   end
 end
 
-local function drawPiece(piece, x, y, fillColor, borderColor)
+local function drawPiece(piece, x, y, fillColor, borderColor, underOffset)
   fillColor = fillColor or piece.color
 
+  for _, tile in ipairs(piece.tiles) do
+    if not (underOffset and piece:hasTile(tile[1], tile[2] + underOffset)) then
+
+      local tileX = x + tile[1] * 2
+      local tileY = y + tile[2]
+
+      drawTile(tileX, tileY, fillColor, borderColor)
+    end
+  end
+end
+
+local function shiftPiece(piece, x, y, tilesRight, tilesDown)
   for _, tile in ipairs(piece.tiles) do
     local tileX = x + tile[1] * 2
     local tileY = y + tile[2]
 
-    drawTile(tileX, tileY, fillColor, borderColor)
+    gpu.copy(tileX, tileY, 2, 1, tilesRight * 2, tilesDown)
+    if not piece:hasTile(tile[1] - tilesRight, tile[2] - tilesDown) then
+      clearTile(tileX, tileY)
+    end
   end
 end
 
@@ -430,15 +457,29 @@ local function calcDropY()
   return newY
 end
 
+local function clearShadow()
+  local dropY = calcDropY()
+  local x, y = fieldCoords(droppingX, calcDropY())
+  clearPiece(droppingPiece, x, y, dropY - droppingY)
+end
+
+local function drawShadow()
+  local dropY = calcDropY()
+  local x, y = fieldCoords(droppingX, calcDropY())
+  drawPiece(droppingPiece, x, y, config.theme.shadow, config.theme.shadowBorder, dropY - droppingY)
+end
+
 local function clearDroppingPiece()
-  clearPiece(droppingPiece, fieldCoords(droppingX, calcDropY()))
   clearPiece(droppingPiece, fieldCoords(droppingX, droppingY))
 end
 
 local function drawDroppingPiece()
-  local x, y = fieldCoords(droppingX, calcDropY())
-  drawPiece(droppingPiece, x, y, config.theme.shadow, config.theme.shadowBorder)
   drawPiece(droppingPiece, fieldCoords(droppingX, droppingY))
+end
+
+local function shiftDroppingPiece(right, down)
+  local x, y = fieldCoords(droppingX, droppingY)
+  shiftPiece(droppingPiece, x, y, right, down)
 end
 
 local bag = {}
@@ -544,6 +585,7 @@ local function spawn(piece)
   resetGravity()
   resetLockDelay()
   drawDroppingPiece()
+  drawShadow()
 end
 
 local function newPiece()
@@ -566,6 +608,7 @@ end
 local function hold()
   if heldPieceUsed then return end
 
+  clearShadow()
   clearDroppingPiece()
   -- clear old held piece
   gpu.fill(holdX - maxPieceWidth + 1, holdY, maxPieceWidth, maxPieceHeight, " ")
@@ -682,10 +725,17 @@ local function move(right, down)
     return false
   end
 
-  clearDroppingPiece()
+  if right ~= 0 then
+    clearShadow()
+  end
+
+  shiftDroppingPiece(right, down)
   droppingX = newX
   droppingY = newY
-  drawDroppingPiece()
+
+  if right ~= 0 then
+    drawShadow()
+  end
 
   resetLockDelay()
   return true
@@ -700,11 +750,13 @@ local function rotate(direction)
     local translationX, translationY = translation[1], translation[2]
     if not isColliding(rotated, droppingX + translationX, droppingY + translationY) then
 
+      clearShadow()
       clearDroppingPiece()
       droppingPiece = rotated
       droppingX = droppingX + translationX
       droppingY = droppingY + translationY
       drawDroppingPiece()
+      drawShadow()
 
       resetLockDelay()
       return true
